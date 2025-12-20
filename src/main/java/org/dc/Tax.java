@@ -1,5 +1,6 @@
 package org.dc;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.apache.commons.lang3.tuple.Pair;
 
 import kdrangeDouble.KDTreeHelper;
@@ -7,12 +8,14 @@ import kdrangeDouble.KeyDuplicateException;
 import kdrangeDouble.KeySizeException;
 import rangetreeboolean.PointNew;
 import rangetreeboolean.RangeTreeBoolean;
+import tidset.TIdSet;
 import trees.AVLTree;
 
 import java.util.*;
 
 public class Tax {
-
+    final ArrayList<Int2ObjectOpenHashMap<TIdSet>> finalTMatches = new ArrayList();
+    final ArrayList<Int2ObjectOpenHashMap<TIdSet>> finalPrimeTMatches = new ArrayList();
     public static void taxq4(int[][] data, Map<String, Integer> nameLoc) {
         long start = System.currentTimeMillis();
         int a = nameLoc.get("AreaCode");
@@ -101,7 +104,7 @@ public class Tax {
         }
         System.out.println("Finished enumeration, time elapsed: " + elapsed + " ms.");
     }
-
+/// ////////////////////////////////////////
     public static void taxq7kdtreebool(int[][] data, Map<String, Integer> nameLoc) throws KeyDuplicateException, KeySizeException {
         long start = System.currentTimeMillis();
         int s = nameLoc.get("State");
@@ -133,7 +136,7 @@ public class Tax {
         	System.out.println("Found the first violation, time elapsed: " + elapsed + " ms.");
         }
     }
-
+//和下面的函数区别在于是2D的
     public static void taxq7rangetreebool(int[][] data, Map<String, Integer> nameLoc) throws KeyDuplicateException, KeySizeException {
         long start = System.currentTimeMillis();
         int s = nameLoc.get("State");

@@ -133,6 +133,7 @@ public class RangeTreeCount {
 		
 		public void insert(Point p) {
 			if (left != null) {
+//                内部节点是一定有左右子节点的
 				// When the current node is not a leaf node
 				if (p.get(dimension) < value) {
 					left.insert(p);

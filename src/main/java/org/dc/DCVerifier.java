@@ -99,7 +99,7 @@ public class DCVerifier {
 						uneqLocs1.get(1), ops.get(1), earlyStop);
 			}
 		}
-		
+//		最general的形式
 		if (uneqLocs1.equals(uneqLocs2)) {
 			System.out.println("[Type] Homogeneous DC (multiple inequalities), using " + treeType);
 			if (treeType.equals("kd-tree")) {

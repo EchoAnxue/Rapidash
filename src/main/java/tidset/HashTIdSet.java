@@ -1,4 +1,4 @@
-package de.hpi.isg.tidSets;
+package tidset;
 
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.roaringbitmap.RoaringBitmap;

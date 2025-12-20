@@ -42,7 +42,7 @@ public class Main {
         	System.out.println("Start violation detection");
 //        	纳秒级
         	long startTime = System.nanoTime();
-        	DCVerifier dcVerifier = new DCVerifier(constraint, input);
+            DCCounter dcVerifier = new DCCounter(constraint, input);
         	long numberOfViolations = dcVerifier.detectViolation(earlystop, treeType);
         	long endTime = System.nanoTime();
             long duration = (endTime - startTime);  // in nanoseconds

@@ -82,14 +82,17 @@ public class Constraint {
     			predicates1.add(new Predicate(pred.column1, pred.column2, ">"));
     			predicates2.add(new Predicate(pred.column1, pred.column2, "<"));
     			foundUneq = true;
-    		} else if (pred.operator.equals("==") && !pred.column1.equals(pred.column2)){
-    			Predicate predGeq = new Predicate(pred.column1, pred.column2, ">=");
-    			Predicate predLeq = new Predicate(pred.column1, pred.column2, "<=");
-    			predicates1.add(predGeq);
-    			predicates1.add(predLeq);
-    			predicates2.add(predGeq);
-    			predicates2.add(predLeq);
-    		} else {
+    		}
+//            revision： 等式跨列不转换
+//            else if (pred.operator.equals("==") && !pred.column1.equals(pred.column2)){
+//    			Predicate predGeq = new Predicate(pred.column1, pred.column2, ">=");
+//    			Predicate predLeq = new Predicate(pred.column1, pred.column2, "<=");
+//    			predicates1.add(predGeq);
+//    			predicates1.add(predLeq);
+//    			predicates2.add(predGeq);
+//    			predicates2.add(predLeq);
+//    		}
+            else {
     			predicates1.add(pred);
     			predicates2.add(pred);
     		}

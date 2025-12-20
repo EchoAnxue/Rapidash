@@ -2,15 +2,63 @@ package org.dc;
 import java.io.*;
 import java.util.*;
 
+import static java.lang.System.exit;
+
 public class InputTable {
 	public int[][] data;
 	public String[] columnNames;
 	public Map<String, Integer> nameLoc = new HashMap<>();
 	
-	public InputTable(String csvFile) {
-		this.convertCSVtoIntArray(csvFile, ",");
+	public InputTable(String csvFile) throws IOException {
+//		this.convertCSVtoIntArray(csvFile, ",");
+        this.readCSV(csvFile, ",");
+
 	}
-	
+    private void readCSV(String csvFile, String delimiter) throws IOException {
+        List<int[]> rows = new ArrayList<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(csvFile))) {
+            String line = br.readLine();
+            if (line == null) {
+                return; // 空文件
+            }
+
+            // 读取表头
+            String[] headers = line.split(delimiter);
+            columnNames = new String[headers.length];
+            for (int i = 0; i < headers.length; i++) {
+                String header = headers[i].trim();
+                columnNames[i] = header;
+                nameLoc.put(header, i);
+            }
+
+            // 读取数据行
+            int maxRows = 0;
+            while ((line = br.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+
+                String[] values = line.split(delimiter);
+                int[] row = new int[values.length];
+
+                for (int i = 0; i < values.length; i++) {
+                    row[i] = Integer.parseInt(values[i].trim());
+                }
+
+                rows.add(row);
+                maxRows++;
+                if(maxRows==3000001){
+                    break;
+                }
+            }
+        }
+
+        // 转换为二维数组
+        data = new int[rows.size()][];
+        for (int i = 0; i < rows.size(); i++) {
+            data[i] = rows.get(i);
+        }
+    }
+
     private void convertCSVtoIntArray(String csvFile, String delimiter) {
         List<List<String>> csvData = new ArrayList<>(); // To store the CSV data in a 2D structure
         Map<String, Integer> stringToIntMap = new LinkedHashMap<>(); // To store unique values and their mapping
@@ -83,6 +131,8 @@ public class InputTable {
             	}
             }
         }
+        saveToCSV("data/"+csvFile+"encoded.csv");
+        exit(0);
     }
     
     private static boolean isNumeric(String str) {

@@ -1,34 +1,34 @@
-package rangetree;
+package rangetree.setUtil;
 
-import tidset.TIdSet;
+import rangetree.Point;
+import tidset.*;
 
-import java.util.ArrayList;
-
-public class RangeTreeCount {
+public class RangeTreeCountSet {
 	private Node root;
-	
-	public RangeTreeCount() {
+
+	public RangeTreeCountSet() {
 		root = null;
 	}
 	
-	public void insert(Point p) {
+	public void insert(Point p,int tid) {
 		if (root == null) {
-			root = new Node(p, p.dimension() - 1);
+			root = new Node(p, p.dimension() - 1, tid);
 		}
 		else {
-			root.insert(p);
+			root.insert(p, tid);
 		}
 	}
 	
-	public long query(Point from, Point to) {
+	public TIdSet query(Point from, Point to) {
 		if (root == null) {
-			return 0;
+			return Utils.createNewTIdSet();
 		}
 		else {
 			return root.query(from, to);
 		}
 	}
-	
+
+
 	private class Node {
 		private final int dimension;
 		private int value; // for non-leaf nodes, this value is the minimum value of its right subtree
@@ -38,15 +38,15 @@ public class RangeTreeCount {
 		private Node left;
 		private Node right;
 		private final Node inner;
-		private long count;
+		private TIdSet count;
 		
-		public Node(Point p, int dimension) {
+		public Node(Point p, int dimension,int tid) {
 			if (dimension == 0) {
 				this.inner = null;
-				this.count = 1;
+				this.count = Utils.createNewTIdSet().add(tid);
 			} else {
-				this.inner = new Node(p, dimension - 1);
-				this.count = 0;
+				this.inner = new Node(p, dimension - 1,tid);
+				this.count =  Utils.createNewTIdSet().add(tid);
 			}
 			
 			this.dimension = dimension;
@@ -60,7 +60,8 @@ public class RangeTreeCount {
 		public Node(Node node) {
 			if (node.getInner() == null) {
 				this.inner = null;
-				this.count = node.getCount();
+//                important! use deep copy ,otherwise introduce conflict
+				this.count = node.getCount().clone();
 			} else {
 				this.inner = new Node(node.getInner());
 			}
@@ -82,7 +83,7 @@ public class RangeTreeCount {
 			this.max = node.getMax();
 		}
 		
-		public long getCount() {
+		public TIdSet getCount() {
 			return count;
 		}
 		
@@ -122,7 +123,7 @@ public class RangeTreeCount {
 	        if (node == null) {
 	            return;
 	        }
-	        if (node.count == 0) {
+	        if (node.count.isEmpty()) {
 	        	System.out.println(prefix + " + " + node.value);
 	        } else {
 	        	System.out.print(prefix + " + " + node.value + " : [");
@@ -133,47 +134,49 @@ public class RangeTreeCount {
 	        printNode(node.right, prefix + " ");
 		}
 		
-		public void insert(Point p) {
+		public void insert(Point p,int tid) {
 			if (left != null) {
 //                内部节点是一定有左右子节点的
 				// When the current node is not a leaf node
 				if (p.get(dimension) < value) {
-					left.insert(p);
+					left.insert(p,tid);
 					min = left.min;
+
 				} else {
-					right.insert(p);
+					right.insert(p,tid);
 					max = right.max;
 				}
 			} else {
 				// When the current node is a leaf node
 				if (p.get(dimension) > value) {
 					left = new Node(this);
-					right = new Node(p, dimension);
+					right = new Node(p, dimension,tid);
 					value = p.get(dimension);
 					max = p.get(dimension);
 				} else if (p.get(dimension) < value) {
 					right = new Node(this);
-					left = new Node(p, dimension);
+					left = new Node(p, dimension,tid);
 					min = p.get(dimension);
 				}
 			}
 			if (inner != null) {
-				inner.insert(p);
+				inner.insert(p,tid);
 			} else {
-				count += 1;
+				count.add(tid);
 			}
 		}
 		
 		public TIdSet query(Point from, Point to) {
+//            TODO maybe can join the computation
 			
 			if (to.get(dimension) < min || from.get(dimension) > max) {
-				return null;
+				return Utils.createNewTIdSet();
 			}
 			if (to.get(dimension) == min && !to.getInclusive(dimension)) {
-				return null;
+				return Utils.createNewTIdSet();
 			}
 			if (from.get(dimension) == max && !from.getInclusive(dimension)) {
-				return null;
+				return Utils.createNewTIdSet();
 			}
 			if ((from.get(dimension) < min || from.get(dimension) == min && from.getInclusive(dimension)) && 
 					(to.get(dimension) > max || to.get(dimension) == max && to.getInclusive(dimension))) {
@@ -182,7 +185,7 @@ public class RangeTreeCount {
 				}
 				return inner.query(from, to);
 			} else {
-				return left.query(from, to) + right.query(from, to);
+				return left.query(from, to).union(right.query(from, to));
 			}
 		}
 	}

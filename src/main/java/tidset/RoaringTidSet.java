@@ -1,6 +1,5 @@
-package de.hpi.isg.tidSets;
+package tidset;
 
-import de.hpi.isg.Utils;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.Iterator;
