@@ -2,30 +2,55 @@ package rangetree.setUtil;
 
 import rangetree.Point;
 import rangetree.RangeTreeCount;
+import rangetree.lsm.LSMRangeTree;
 import tidset.TIdSet;
 
 import java.util.ArrayList;
 
 public class RangeTreeSetHelper {
-	private RangeTreeCountSet rt;
+    public enum IndexType {
+        RANGE_TREE,      // 原始Range Tree（Rapidash基准）
+        LAZY_TREE,       // 延迟构建的Range Tree
+        LSM_TREE,        // LSM风格的Range Tree
+        HYBRID_TREE,     // 混合索引（我的建议）
+        ADAPTIVE_TREE    // 自适应索引
+    }
+//	private RangeTreeCountSet rt;
+//
+//	public RangeTreeSetHelper() {
+//		rt = new RangeTreeCountSet();
+//	}
+//    private RangeTreeCountSetLazy rt;
+//
+//    public RangeTreeSetHelper() {
+//        rt = new RangeTreeCountSetLazy();
+//    }
 
-	public RangeTreeSetHelper() {
-		rt = new RangeTreeCountSet();
-	}
-	
+    private  LSMRangeTree rt;
+        public RangeTreeSetHelper() {
+            rt = new LSMRangeTree();
+        }
+//    public RangeTreeSetHelper(IndexType type) {
+//
+//            switch (type) {
+//                case RANGE_TREE:rt = new LSMRangeTree();
+//                case
+//            }
+//
+//    }
 	public void insert(int [] key, int value) {
 		Point p = new Point(key);
 		rt.insert(p,value);
 	}
 	
-	public TIdSet rangeCount(int [] lowk, int [] uppk,boolean[] ops) {
+	public TIdSet rangeCount(int [] lowk, int [] uppk,boolean[] ops,Point p, int tid) {
 		boolean [] inclusive = new boolean[lowk.length];
 		for (int i = 0; i < inclusive.length; i++) {
 			inclusive[i] = ops[i] ;
 		}
 		Point low = new Point(lowk, inclusive);
 		Point up = new Point(uppk, inclusive);
-		return rt.query(low, up);
+		return rt.rangeCount(low, up, p,  tid);
 	}
 
     public static class RangeTreeSet {
