@@ -8,9 +8,18 @@ import java.util.NoSuchElementException;
 public class IntArray implements Iterable<Integer>, Cloneable {
 
     private int[] data;
+
+    public int[] getData() {
+        return data;
+    }
+
+    public int getSize() {
+        return size;
+    }
+
     private int size;
 
-    private static final int DEFAULT_CAPACITY = 8;
+    private static final int DEFAULT_CAPACITY = 128;
 
     public IntArray() {
         this.data = new int[DEFAULT_CAPACITY];

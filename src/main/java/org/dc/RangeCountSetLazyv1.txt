@@ -1,12 +1,14 @@
 package rangetree.setUtil;
 
 
+//import jdk.internal.icu.text.NormalizerBase;
 import rangetree.Point;
 import rangetree.lsm.PointTid;
 import tidset.*;
 import java.util.*;
 
 public class RangeTreeCountSetLazy {
+
     public static class Stats {
         public long splitCount = 0;
         public long cloneNodeCount = 0;   // proxy: number of Node copies
@@ -30,7 +32,6 @@ public class RangeTreeCountSetLazy {
     }
 
     public static final Stats STATS = new Stats();
-
     private Node root;
 
     public RangeTreeCountSetLazy() {
@@ -75,7 +76,7 @@ public class RangeTreeCountSetLazy {
         private TIdSet base;          // materialized bitmap
         private IntArray delta;       // newly inserted tids
 
-        private static final int DELTA_THRESHOLD = 128;
+        private static final int DELTA_THRESHOLD = 1024;
 
         public Node(){
 
@@ -102,7 +103,7 @@ public class RangeTreeCountSetLazy {
         }
 
         // ---------- deep copy constructor ----------
-        public Node(Node node) {RangeTreeCountSetLazy.STATS.cloneNodeCount++;
+        public Node(Node node) {
             this.dimension = node.dimension;
             this.value = node.value;
             this.min = node.min;
@@ -140,11 +141,11 @@ public class RangeTreeCountSetLazy {
                     left = new Node(this);
                     right = new Node(p, dimension, tid);
                     value = p.get(dimension);
-                    max = value; RangeTreeCountSetLazy.STATS.splitCount++;
+                    max = value;
                 } else if (p.get(dimension) < value) {
                     right = new Node(this);
                     left = new Node(p, dimension, tid);
-                    min = p.get(dimension); RangeTreeCountSetLazy.STATS.splitCount++;
+                    min = p.get(dimension);
                 }
             }
 
@@ -182,13 +183,15 @@ public class RangeTreeCountSetLazy {
 
             if (fullyCovered) {
                 if (inner == null) {
-                    return materialize();
+                    base = materialize();
+                    delta.clear();
+                    return base.clone();
                 }
                 return inner.query(from, to);
             }
             TIdSet leftSet = Utils.createNewTIdSet();
             if (left != null) {
-                 leftSet = left.query(from, to);
+                leftSet = left.query(from, to);
             }
             TIdSet rightSet = Utils.createNewTIdSet();
             if (right != null) {
@@ -200,21 +203,20 @@ public class RangeTreeCountSetLazy {
 
         // ================= Lazy helpers =================
 
-        private TIdSet materialize() {RangeTreeCountSetLazy.STATS.materializeCount++;
+        private TIdSet materialize() {
             if (delta.isEmpty()) {
                 return base;
             }
-            TIdSet result = base.clone();
-            for (int tid : delta) {
-                result.add(tid);
-            }
-            return result;
+//            TIdSet result = base.clone();
+            base.add(delta.getData(),delta.getSize());
+//            for (int tid : delta) {
+//                result.add(tid);
+//            }
+            return base;
         }
 
-        private void maybeFlush() { RangeTreeCountSetLazy.STATS.flushCount++;
+        private void maybeFlush() {
             if (delta.size() >= DELTA_THRESHOLD) {
-            //                RangeTreeCountSetLazy.STATS.deltasize = max(delta.getSize(),RangeTreeCountSetLazy.STATS.deltasize);
-            //                RangeTreeCountSetLazy.STATS.basesize = max(base.cardinality(),RangeTreeCountSetLazy.STATS.basesize);
                 base = materialize();
                 delta.clear();
             }

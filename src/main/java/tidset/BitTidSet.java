@@ -47,7 +47,25 @@ public class BitTidSet implements TIdSet {
         set.set(tId);
         return this;
     }
+    @Override
+    public TIdSet add(int[] data, int length) {
+        if (length == 0) return this;
 
+        // 1. 拷贝有效区间
+        int[] batch = new int[length];
+        System.arraycopy(data, 0, batch, 0, length);
+
+        // 2. 排序（Roaring 批量构建需要有序）
+        java.util.Arrays.sort(batch);
+
+        // 3. 批量加入
+        for(int each: batch){
+            this.add(each);
+        }
+
+
+        return this;
+    }
     @Override
     public TIdSet remove(int tId) {
         set.clear(tId);

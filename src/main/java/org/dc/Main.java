@@ -6,11 +6,14 @@ import java.util.Map;
 
 import kdrangeDouble.KeyDuplicateException;
 import kdrangeDouble.KeySizeException;
+import rangetree.setUtil.Utils;
 
 public class Main {
     public static void main(String[] args) throws IOException, KeyDuplicateException, KeySizeException, kdrange.KeySizeException, kdrange.KeyDuplicateException {
     	Map<String, String> namedArgs = argsParse(args);
-    	if (namedArgs.get("experiment") != null) {
+//		Utils.GCMonitor.install();
+
+		if (namedArgs.get("experiment") != null) {
     		if (!isValidExperiment(namedArgs.get("experiment"))) {
     			System.out.println("experiment Should be one of the following: tax, tpch, ncvoter");
     			System.exit(1);

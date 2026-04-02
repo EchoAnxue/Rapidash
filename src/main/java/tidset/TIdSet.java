@@ -8,6 +8,7 @@ public interface TIdSet extends Iterable<Integer>, Cloneable {
     TIdSet union(TIdSet other);
     TIdSet minus(TIdSet other);
     TIdSet add(int tId);
+    TIdSet add(int[] data, int size);
     TIdSet remove(int tId);
     boolean isEmpty();
     int cardinality();

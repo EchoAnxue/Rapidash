@@ -15,21 +15,21 @@ public class RangeTreeSetHelper {
         HYBRID_TREE,     // 混合索引（我的建议）
         ADAPTIVE_TREE    // 自适应索引
     }
-//	private RangeTreeCountSet rt;
+    //	private RangeTreeCountSet rt;
 //
 //	public RangeTreeSetHelper() {
 //		rt = new RangeTreeCountSet();
 //	}
-//    private RangeTreeCountSetLazy rt;
-//
-//    public RangeTreeSetHelper() {
-//        rt = new RangeTreeCountSetLazy();
-//    }
+    private RangeTreeCountSetLazy rt;
 
-    private  LSMRangeTree rt;
-        public RangeTreeSetHelper() {
-            rt = new LSMRangeTree();
-        }
+    public RangeTreeSetHelper() {
+        rt = new RangeTreeCountSetLazy();
+    }
+
+    //    private  LSMRangeTree rt;
+//        public RangeTreeSetHelper() {
+//            rt = new LSMRangeTree();
+//        }
 //    public RangeTreeSetHelper(IndexType type) {
 //
 //            switch (type) {
@@ -38,20 +38,19 @@ public class RangeTreeSetHelper {
 //            }
 //
 //    }
-	public void insert(int [] key, int value) {
-		Point p = new Point(key);
-		rt.insert(p,value);
-	}
-	
-	public TIdSet rangeCount(int [] lowk, int [] uppk,boolean[] ops,Point p, int tid) {
-		boolean [] inclusive = new boolean[lowk.length];
-		for (int i = 0; i < inclusive.length; i++) {
-			inclusive[i] = ops[i] ;
-		}
-		Point low = new Point(lowk, inclusive);
-		Point up = new Point(uppk, inclusive);
-		return rt.rangeCount(low, up, p,  tid);
-	}
+    public void insert(int [] key, int value) {
+        Point p = new Point(key);
+        rt.insert(p,value);
+    }
+
+    public TIdSet rangeCount(int [] lowk, int [] uppk,boolean[] ops) {
+        Point low = new Point(lowk, ops);
+        Point up = new Point(uppk, ops);
+//        1. lsm tree的return
+//		return rt.rangeCount(low, up, p,  tid);
+//        2， lazy的return
+        return rt.query(low, up);
+    }
 
     public static class RangeTreeSet {
         private Node root;
@@ -184,7 +183,7 @@ public class RangeTreeSetHelper {
 
             public void insert(Point p) {
                 if (left != null) {
-    //                内部节点是一定有左右子节点的
+                    //                内部节点是一定有左右子节点的
                     // When the current node is not a leaf node
                     if (p.get(dimension) < value) {
                         left.insert(p);

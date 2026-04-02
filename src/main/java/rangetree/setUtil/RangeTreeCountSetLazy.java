@@ -1,6 +1,8 @@
 package rangetree.setUtil;
 
 
+//import jdk.internal.icu.text.NormalizerBase;
+import jdk.jshell.execution.Util;
 import rangetree.Point;
 import rangetree.lsm.PointTid;
 import tidset.*;
@@ -8,6 +10,29 @@ import java.util.*;
 
 public class RangeTreeCountSetLazy {
 
+    public static class Stats {
+        public long splitCount = 0;
+        public long cloneNodeCount = 0;   // proxy: number of Node copies
+        public long flushCount = 0;
+        public long materializeCount = 0;
+
+        public void reset() {
+            splitCount = 0;
+            cloneNodeCount = 0;
+            flushCount = 0;
+            materializeCount = 0;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "splits=%d, clones=%d, flushes=%d, materializes=%d",
+                    splitCount, cloneNodeCount, flushCount, materializeCount
+            );
+        }
+    }
+
+    public static final Stats STATS = new Stats();
     private Node root;
 
     public RangeTreeCountSetLazy() {
@@ -26,94 +51,29 @@ public class RangeTreeCountSetLazy {
         if (root == null) {
             return Utils.createNewTIdSet();
         }
-        return root.query(from, to);
+        TIdSet out = Utils.createNewTIdSet();
+        root.queryInto(from, to, out);
+        return out;
+    }
+//    public TIdSet query(Point from, Point to) {
+//        if (root == null) {
+//            return Utils.createNewTIdSet();
+//        }
+//
+//        return  root.query(from,to);
+//
+//    }
+    public void queryInto(Point from, Point to, TIdSet acc) {
+        if (root == null) {
+            return;
+        }
+        root.queryInto(from, to, acc);
     }
     public boolean isEmpty() {
         return root == null;
     }
-    public static RangeTreeCountSetLazy bulkBuild(List<PointTid> tuples) {
-        RangeTreeCountSetLazy tree = new RangeTreeCountSetLazy();
-        if (tuples.isEmpty()) return tree;
 
-        int dim = tuples.get(0).point.dimension() - 1;
-        tree.root = buildNode(tuples, dim);
-        return tree;
-    }
-    private static Node addNodes(List<PointTid> pts, int dim) {
 
-        if (pts.isEmpty()) return null;
-
-        pts.sort(Comparator.comparingInt(p -> p.point.get(dim)));
-
-        int n = pts.size();
-        int mid = n / 2;
-        PointTid pivot = pts.get(mid);
-
-        Node node = new Node();
-        node.dimension = dim;
-        node.value = pivot.point.get(dim);
-        node.min = pts.get(0).point.get(dim);
-        node.max = pts.get(n - 1).point.get(dim);
-
-        List<PointTid> leftPts  = pts.subList(0, mid);
-        List<PointTid> rightPts = pts.subList(mid + 1, n);
-
-        if (dim == 0) {
-            node.inner = null;
-            node.base = Utils.createNewTIdSet();
-            node.delta = new IntArray();
-            for (PointTid pt : pts) {
-                node.base.add(pt.tid);
-            }
-        } else {
-            node.inner = buildNode(new ArrayList<>(pts), dim - 1);
-            node.base = null;
-            node.delta = null;
-        }
-
-        node.left = buildNode(new ArrayList<>(leftPts), dim);
-        node.right = buildNode(new ArrayList<>(rightPts), dim);
-
-        return node;
-    }
-
-    private static Node buildNode(List<PointTid> pts, int dim) {
-
-        if (pts.isEmpty()) return null;
-
-        pts.sort(Comparator.comparingInt(p -> p.point.get(dim)));
-
-        int n = pts.size();
-        int mid = n / 2;
-        PointTid pivot = pts.get(mid);
-
-        Node node = new Node();
-        node.dimension = dim;
-        node.value = pivot.point.get(dim);
-        node.min = pts.get(0).point.get(dim);
-        node.max = pts.get(n - 1).point.get(dim);
-
-        List<PointTid> leftPts  = pts.subList(0, mid);
-        List<PointTid> rightPts = pts.subList(mid + 1, n);
-
-        if (dim == 0) {
-            node.inner = null;
-            node.base = Utils.createNewTIdSet();
-            node.delta = new IntArray();
-            for (PointTid pt : pts) {
-                node.base.add(pt.tid);
-            }
-        } else {
-            node.inner = buildNode(new ArrayList<>(pts), dim - 1);
-            node.base = null;
-            node.delta = null;
-        }
-
-        node.left = buildNode(new ArrayList<>(leftPts), dim);
-        node.right = buildNode(new ArrayList<>(rightPts), dim);
-
-        return node;
-    }
 
     // ===================== Node =====================
 
@@ -133,11 +93,9 @@ public class RangeTreeCountSetLazy {
         private TIdSet base;          // materialized bitmap
         private IntArray delta;       // newly inserted tids
 
-        private static final int DELTA_THRESHOLD = 128;
+        private static final int DELTA_THRESHOLD = 1024;
 
-        public Node(){
 
-        }
         // ---------- constructor ----------
         public Node(Point p, int dimension, int tid) {
             this.dimension = dimension;
@@ -171,7 +129,8 @@ public class RangeTreeCountSetLazy {
 
             if (node.inner == null) {
                 this.inner = null;
-                this.base = node.base.clone();
+//                this.base = Utils.createNewTIdSet();
+                this.base = node.base;   // 共享不可变快照，写时复制在 materialize 中处理
                 this.delta = node.delta.clone();
             } else {
                 this.inner = new Node(node.inner);
@@ -240,13 +199,15 @@ public class RangeTreeCountSetLazy {
 
             if (fullyCovered) {
                 if (inner == null) {
-                    return materialize();
+                    base = materialize();
+                    delta.clear();
+                    return base.clone();
                 }
                 return inner.query(from, to);
             }
             TIdSet leftSet = Utils.createNewTIdSet();
             if (left != null) {
-                 leftSet = left.query(from, to);
+                leftSet = left.query(from, to);
             }
             TIdSet rightSet = Utils.createNewTIdSet();
             if (right != null) {
@@ -256,17 +217,60 @@ public class RangeTreeCountSetLazy {
             return leftSet.union(rightSet);
         }
 
+        private void queryInto(Point from, Point to, TIdSet acc) {
+
+            if (to.get(dimension) < min || from.get(dimension) > max) {
+                return;
+            }
+
+            if (to.get(dimension) == min && !to.getInclusive(dimension)) {
+                return;
+            }
+
+            if (from.get(dimension) == max && !from.getInclusive(dimension)) {
+                return;
+            }
+
+            boolean fullyCovered =
+                    (from.get(dimension) < min ||
+                            (from.get(dimension) == min && from.getInclusive(dimension)))
+                            && (to.get(dimension) > max ||
+                            (to.get(dimension) == max && to.getInclusive(dimension)));
+
+            if (fullyCovered) {
+                if (inner == null) {
+                    base = materialize();
+                    delta.clear();
+                    acc.union(base);
+                } else {
+                    inner.queryInto(from, to, acc);
+                }
+                return;
+            }
+            if (left != null) {
+                left.queryInto(from, to, acc);
+            }
+            if (right != null) {
+                right.queryInto(from, to, acc);
+            }
+        }
+
         // ================= Lazy helpers =================
 
         private TIdSet materialize() {
             if (delta.isEmpty()) {
                 return base;
             }
-            TIdSet result = base.clone();
-            for (int tid : delta) {
-                result.add(tid);
-            }
-            return result;
+//             写时复制：在新副本上合并 delta，不修改共享的 base 快照
+            TIdSet newBase = base.clone();
+            newBase.add(delta.getData(), delta.getSize());
+            this.base = newBase;
+            return newBase;
+//            base.add(delta.getData(),delta.getSize());
+//            for (int tid : delta) {
+//                base.add(tid);
+//            }
+//            return base;
         }
 
         private void maybeFlush() {

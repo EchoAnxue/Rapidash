@@ -1,0 +1,50 @@
+AreaCode(String) = AreaCode(String)
+Phone(String) = Phone(String)
+---------------------
+Zip(int) = Zip(int)
+City(String) < City(String)
+
+---------------------
+
+State(String) = State(String)
+HasChild(String) = HasChild(String)
+ChildExemp(int) < ChildExemp(int)
+
+------------------------
+State(String) = State(String)
+Salary(float) > Salary(float)
+Rate(float) < Rate(float)
+==============================
+--------------------------
+Origin(str) = Destination(str)
+Destination(str) = Origin(str)
+Distance(float) < Distance(float)
+---------------------------------
+Origin(str) = Origin(str)
+Destination(str) = Destination(str)
+Flights(float) > Flights(float)
+Passengers(float) < Passengers(float)
+--------------------------
+========================================
+cust(float) = supp(float)
+supp(float) = cust(float)
+------------
+title(String) = title(String)
+prodyear(String) = prodyear(String)
+kind(String) < kind(String)
+
+============================================
+# ['1(int)', 'cust(float)', 'supp(float)']
+# ['1(int)', 'title(String)', 'prodyear(String)', 'kind(String)']
+
+
+
+flights
+#  '1(float)', 'Origin(str)', 'Destination(str)', 'OriginCity(str)', 'DestinationCity(str)',
+ 'Passengers(float)', 'Seats(float)', 'Flights(float)', 'Distance(float)', 'FlyDate(float)',
+  'OriginPopulation(float)', 'DestinationPopulation(float)']
+
+tax
+# ['1(int)', 'Fname(String)', 'Lname(String)', 'Gender(String)',
+# 'AreaCode(String)', 'Phone(String)', 'City(String)', 'State(String)', 'Zip(int)', 'MaritalStatus(String)',
+# 'HasChild(String)', 'Salary(float)', 'Rate(float)', 'SingleExemp(int)', 'MarriedExemp(int)', 'ChildExemp(int)']
