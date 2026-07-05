@@ -19,7 +19,7 @@ public class IntArray implements Iterable<Integer>, Cloneable {
 
     private int size;
 
-    private static final int DEFAULT_CAPACITY = 128;
+    private static final int DEFAULT_CAPACITY = 16;
 
     public IntArray() {
         this.data = new int[DEFAULT_CAPACITY];

@@ -93,7 +93,7 @@ public class RangeTreeCountSetLazy {
         private TIdSet base;          // materialized bitmap
         private IntArray delta;       // newly inserted tids
 
-        private static final int DELTA_THRESHOLD = 1024;
+        private static final int DELTA_THRESHOLD = 128;
 
 
         // ---------- constructor ----------

@@ -5,13 +5,13 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import kdrange.KeyDuplicateException;
 import kdrange.KeySizeException;
 import rangetree.Point;
-import rangetree.setUtil.LazyTidSet;
-import rangetree.setUtil.RangeTreeCountSetLazy;
 import rangetree.setUtil.RangeTreeSetHelper;
 import rangetree.setUtil.Utils;
 import tidset.TIdSet;
 import trees.AVLTree;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.*;
@@ -20,12 +20,26 @@ public class DCCounter {
     ArrayList<Constraint> atomDCs = new ArrayList<Constraint>();
     InputTable input;
     boolean violationCountTwice;
-    final ArrayList<int[]> idTKey = new ArrayList<int[]>();
-    int maxTid=0;
-    boolean deleteOccurred =false;
-    final Int2ObjectOpenHashMap<TIdSet> finalTMatches =  new Int2ObjectOpenHashMap<>();
-//    String dbName ="C:\\Users\\Echo\\OneDrive\\HIT\\HIT\\OFFICIAL\\tax_DC2_random.db";
-    String dbName ="D:\\OneDrive - Heriot-Watt University\\2025\\Weever\\data\\results\\shuffle_round.db";
+    int maxTid = 0;
+    boolean deleteOccurred = false;
+    private boolean keepDeletion = true;
+    final Int2ObjectOpenHashMap<TIdSet> finalTMatches = new Int2ObjectOpenHashMap<>();
+    String type;
+    Map<List<Integer>, RangeTreeSetHelper> treesMap = new HashMap<>();
+    Map<List<Integer>, RangeTreeSetHelper> treesMapAsLeftSide = new HashMap<>();
+    Map<List<Integer>, RangeTreeSetHelper> treesMapAsRightSide = new HashMap<>();
+    Map<String, TIdSet> counterLeft = new HashMap<>();
+    Map<String, TIdSet> counterRight = new HashMap<>();
+    //--------------------------------------------------------------------
+    ArrayList<Integer> homoEqLocs = new ArrayList<Integer>();
+    ArrayList<Integer> heteroEqLocs1 = new ArrayList<>();
+    ArrayList<Integer> heteroEqLocs2 = new ArrayList<>();
+    // Column indices and operator of the inequalities
+    ArrayList<Integer> uneqLocs1 = new ArrayList<Integer>();
+    ArrayList<Integer> uneqLocs2 = new ArrayList<Integer>();
+    ArrayList<String> ops = new ArrayList<String>();
+    //    String dbName ="C:\\Users\\Echo\\OneDrive\\HIT\\HIT\\OFFICIAL\\tax_DC2_random.db";
+    String dbName = "D:\\OneDrive - Heriot-Watt University\\2025\\Weever\\data\\results\\shuffle_round.db";
 //    D:\OneDrive - Heriot-Watt University\2025\Weever\data\results\shuffle_round.db
 
     //
@@ -33,9 +47,9 @@ public class DCCounter {
      @value Int2ObjectOpenHashMap<Key=tId, Value=TIdSet>
     (existingTuple, newTuple) 方向
      */
-    final Int2ObjectOpenHashMap<TIdSet> finalTPrimeMatches =  new Int2ObjectOpenHashMap<>();
+    final Int2ObjectOpenHashMap<TIdSet> finalTPrimeMatches = new Int2ObjectOpenHashMap<>();
     TIdSet allTuples = Utils.createNewTIdSet();
-    private boolean keepDeletion = true;
+
 
     public DCCounter(Constraint DC, InputTable input) {
         this.input = input;
@@ -73,26 +87,16 @@ public class DCCounter {
 
     private long detectViolationSingle(Constraint DC, boolean earlyStop, String treeType) throws KeySizeException, KeyDuplicateException {
         System.out.println("\nDetecting violations for: " + DC);
-        ArrayList<Integer> homoEqLocs = new ArrayList<Integer>();
-        ArrayList<Integer> heteroEqLocs1 = new ArrayList<>();
-        ArrayList<Integer> heteroEqLocs2 = new ArrayList<>();
-        // Column indices and operator of the inequalities
-        ArrayList<Integer> uneqLocs1 = new ArrayList<Integer>();
-        ArrayList<Integer> uneqLocs2 = new ArrayList<Integer>();
-        ArrayList<String> ops = new ArrayList<String>();
+
         for (Predicate pred : DC.predicates) {
-            if (pred.operator.equals("==")&&(pred.column1.equals(pred.column2))) {
+            if (pred.operator.equals("==") && (pred.column1.equals(pred.column2))) {
 //                如果是跨列已经被decompose成不等式了
 //                同列 等式
                 homoEqLocs.add(this.input.nameLoc.get(pred.column1));
-            } else
-            if (pred.operator.equals("==")&&(!pred.column1.equals(pred.column2)))
-            {
+            } else if (pred.operator.equals("==") && (!pred.column1.equals(pred.column2))) {
                 heteroEqLocs1.add(this.input.nameLoc.get(pred.column1));
                 heteroEqLocs2.add(this.input.nameLoc.get(pred.column2));
-            }
-            else
-            {
+            } else {
 //                跨列等式也被加入这个
                 uneqLocs1.add(this.input.nameLoc.get(pred.column1));
                 uneqLocs2.add(this.input.nameLoc.get(pred.column2));
@@ -106,44 +110,81 @@ public class DCCounter {
 
 
             if (heteroEqLocs2.size() == 0) {
-                System.out.println("[Type] Equation-only homogeneous DC");
-                return countDups(homoEqLocs, earlyStop);
-            }
+                System.out.println("[Type1] Equation-only homogeneous DC");
+                type = "InsertcountDups";
+                if (keepDeletion) {
 
-            else {
-                System.out.println("[Type] Equation-only heterogeneous DC");
-                return HeteroCountDups(homoEqLocs, earlyStop,heteroEqLocs1,heteroEqLocs2);
+                    deletionOperation();
+
+
+                }
+                return countDups(homoEqLocs, earlyStop);
+            } else {
+                System.out.println("[Type2] Equation-only heterogeneous DC");
+                type = "InsertHeteroCountDups";
+                if (keepDeletion) {
+
+                    deletionOperation();
+                    return 0 ;
+                }
+                return HeteroCountDups(homoEqLocs, earlyStop, heteroEqLocs1, heteroEqLocs2);
             }
         }
         if (ops.size() >= 1) {
-            System.out.println("[Inequality DC ] size = "+ops.size());
+            System.out.println("[Inequality DC ] size = " + ops.size());
             if (earlyStop) {
 //                verification
                 System.out.println("[Type] Homogeneous DC");
                 System.out.println("[Optimaization] Only keep tack of min/max");
+                if (keepDeletion){
+                    deletionOperation();
+                }
                 return boolViolationsMinMax(homoEqLocs, uneqLocs1.get(0), uneqLocs2.get(0), ops.get(0));
             }
             if (uneqLocs1.equals(uneqLocs2)) {
 
                 if (heteroEqLocs2.size() == 0) {
-                    System.out.println("[Type] Homogeneous DC");
-                    return countViolationsRangeTreeHomo(homoEqLocs,  uneqLocs1, ops, earlyStop);
-                }
-                else{
-                    System.out.println("[Type] Heterogeneous Equal and homogeneous inequality ");
-                    return countViolationsRangeTreeHeteroEqualHomo(homoEqLocs,heteroEqLocs1,heteroEqLocs2, uneqLocs1, ops, earlyStop);
+                    System.out.println("[Type3] Homogeneous DC");
+//                    拆分DC
+                    type = "InsertcountViolationsRangeTreeHomo";
+                    if (keepDeletion) {
+
+                        deletionOperation();
+                        return 0 ;
+                    }
+                    return countViolationsRangeTreeHomo(homoEqLocs, uneqLocs1, ops, earlyStop);
+                } else {
+                    System.out.println("[Type4] Heterogeneous Equal and homogeneous inequality ");
+                    type = "InsertcountViolationsRangeTreeHeteroEqualHomo";
+                    if (keepDeletion) {
+
+                        deletionOperation();
+                        return 0 ;
+                    }
+                    return countViolationsRangeTreeHeteroEqualHomo(homoEqLocs, heteroEqLocs1, heteroEqLocs2, uneqLocs1, ops, earlyStop);
                 }
 
 //				return countViolationsAVLTreeHomo(homoEqLocs, uneqLocs1.get(0), ops.get(0), earlyStop);
             } else {
                 if (heteroEqLocs2.size() == 0) {
-                    System.out.println("[Type] Heterogeneous DC[only inequality] ");
-                    return countViolationsRangeTreeHeter(homoEqLocs, uneqLocs1,uneqLocs2, ops, earlyStop);
-                }
-                else{
+                    System.out.println("[Type5] Heterogeneous DC[only inequality] ");
+                    type = "InsertcountViolationsRangeTreeHeter";
+                    if (keepDeletion) {
+
+                        deletionOperation();
+                        return 0 ;
+                    }
+                    return countViolationsRangeTreeHeter(homoEqLocs, uneqLocs1, uneqLocs2, ops, earlyStop);
+                } else {
 //               值得是列名相等不是 列的数量相等
-                    System.out.println("[Type] Heterogeneous DC with hetero Equality");
-                    return countViolationsRangeTreeHeteroEqualHeter(homoEqLocs,heteroEqLocs1,heteroEqLocs2, uneqLocs1, uneqLocs2, ops, earlyStop);
+                    System.out.println("[Type6] Heterogeneous DC with hetero Equality");
+                    type = "InsertcountViolationsRangeTreeHeteroEqualHeter";
+                    if (keepDeletion) {
+
+                        deletionOperation();
+                        return 0 ;
+                    }
+                    return countViolationsRangeTreeHeteroEqualHeter(homoEqLocs, heteroEqLocs1, heteroEqLocs2, uneqLocs1, uneqLocs2, ops, earlyStop);
 //				return countViolationsAVLTreeHeter(homoEqLocs, uneqLocs1.get(0), uneqLocs2.get(0), ops.get(0), earlyStop);
                 }
 
@@ -178,6 +219,7 @@ public class DCCounter {
         }
         return 0;
     }
+
     //TODO
     private long countViolationsRangeTreeHeteroEqualHeter(ArrayList<Integer> homoEqLocs, ArrayList<Integer> heteroEqLocs1, ArrayList<Integer> heteroEqLocs2,
                                                           ArrayList<Integer> uneqLocsLeft, ArrayList<Integer> uneqLocsRight, ArrayList<String> ops, boolean earlyStop) {
@@ -187,15 +229,12 @@ public class DCCounter {
          */
 
 
-        Map<List<Integer>, RangeTreeSetHelper> treesMapAsLeftSide = new HashMap<>();
-        Map<List<Integer>, RangeTreeSetHelper> treesMapAsRightSide = new HashMap<>();
-
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < input.data.length; i++) {
             indices.add(i);
         }
 //        Collections.shuffle(indices);
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long longestInsertTime = 0;
@@ -212,10 +251,10 @@ public class DCCounter {
                 eqValuesLeft.add(input.data[i][j]);
                 eqValuesRight.add(input.data[i][j]);
             }
-            for (int j : heteroEqLocs1){
+            for (int j : heteroEqLocs1) {
                 eqValuesLeft.add(input.data[i][j]);
             }
-            for (int j : heteroEqLocs2){
+            for (int j : heteroEqLocs2) {
                 eqValuesRight.add(input.data[i][j]);
             }
 
@@ -239,20 +278,20 @@ public class DCCounter {
                 computeBounds(ineqValuesRight, upperBound, lowerBound, ops, inclusive);
                 violationCount.union(treesMapAsLeftSide.get(eqValuesRight).rangeCount(lowerBound, upperBound, inclusive));
             }
-            if(!treesMapAsLeftSide.containsKey(eqValuesLeft)){
-                treesMapAsLeftSide.put(eqValuesLeft,new RangeTreeSetHelper());
+            if (!treesMapAsLeftSide.containsKey(eqValuesLeft)) {
+                treesMapAsLeftSide.put(eqValuesLeft, new RangeTreeSetHelper());
             }
             treesMapAsLeftSide.get(eqValuesLeft).insert(ineqValuesLeft, tid);
 
-            if(!treesMapAsRightSide.containsKey(eqValuesLeft)) {
+            if (treesMapAsRightSide.containsKey(eqValuesLeft)) {
 
                 computeBounds(ineqValuesLeft, upperBound, lowerBound, reverseOp(ops), inclusive);
                 violationCount.union(treesMapAsRightSide.get(eqValuesLeft).rangeCount(lowerBound, upperBound, inclusive));
             }
-            if(!treesMapAsRightSide.containsKey(eqValuesRight)){
-                treesMapAsRightSide.put(eqValuesRight,new RangeTreeSetHelper());
+            if (!treesMapAsRightSide.containsKey(eqValuesRight)) {
+                treesMapAsRightSide.put(eqValuesRight, new RangeTreeSetHelper());
             }
-            treesMapAsRightSide.get(eqValuesRight).insert(ineqValuesRight,tid);
+            treesMapAsRightSide.get(eqValuesRight).insert(ineqValuesRight, tid);
 
 
             if (earlyStop && violationCount.cardinality() > 0) {
@@ -277,9 +316,9 @@ public class DCCounter {
 //                每1k次插入汇报一下情况
 //                System.out.println(tid+1);
                 timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-                int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+                int sum = getSumOfViolationsForOneSide(finalTMatches);
 
-                errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
                 try {
                     Class.forName("org.sqlite.JDBC");
                     Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
@@ -294,7 +333,6 @@ public class DCCounter {
                 }
 
 
-
             }
         }
         System.out.println("====result=========");
@@ -303,151 +341,96 @@ public class DCCounter {
         return 0;
     }
 
+    public long InsertcountViolationsRangeTreeHeteroEqualHeter() {
 
-//    private long countViolationsRangeTreeHomo(ArrayList<Integer> homoEqLocs, ArrayList<Integer> uneqLocs, ArrayList<String> ops, boolean earlyStop) {
-//
-//            /*
-//             * Use range trees to find violations.
-//             * The columns on the left-hand-side and the right-hand-side are the same.
-//             */
-//
-//            Map<List<Integer>, RangeTreeSetHelper> treesMap = new HashMap<>();
-//
-//            List<Integer> indices = new ArrayList<>();
-//
-//            for (int i = 0; i < input.data.length; i++) {
-//                indices.add(i);
-//            }
-//
-////    	Collections.shuffle(indices);
-//        /*
-//        preparation
-//         */
-//            int  measureGranularity =1000;
-//
-//            long insertTimeSum = 0;
-//            long queryTimeSum = 0;
-//            long longestInsertTime = 0;
-//            int longestTId = 0;
-//
-//            long[] timePerHundredth = new long[indices.size() / measureGranularity + 1];
-//            int[] errorsPerHundredth = new int[indices.size() / measureGranularity + 1];
-////
-//
-//
-//
-//
-////    insert
-//            for (int i : indices) {
-//                long tStart = System.nanoTime();
-//                List<Integer> eqValues = new ArrayList<>();
-//                for (int j : homoEqLocs) {
-//                    eqValues.add(input.data[i][j]);
-//                }
-//                int[] ineqValues = new int[ops.size()];
-//                for (int k = 0; k < ops.size(); k++) {
-//                    ineqValues[k] = input.data[i][uneqLocs.get(k)];
-//                }
-//
-//                idTKey.add(ineqValues);
-//                int tid = maxTid++;
-//            /*
-//            每个tid 对应的operand ：violationCount
-//             */
-//                TIdSet violationCount = Utils.createNewTIdSet();
-//                TIdSet inter = Utils.createNewTIdSet();
-//                if (treesMap.containsKey(eqValues)) {
-//                    int[] upperBound = new int[ops.size()];
-//                    int[] lowerBound = new int[ops.size()];
-//                    boolean[]  inclusive = new boolean[ops.size()];
-//
-//                    computeBounds(ineqValues, upperBound, lowerBound, ops,inclusive);
-//                    violationCount.union( treesMap.get(eqValues).rangeCount(lowerBound, upperBound,inclusive));
-//                    computeBounds(ineqValues, upperBound, lowerBound, reverseOp(ops),inclusive);
-//                    inter = treesMap.get(eqValues).rangeCount(lowerBound, upperBound,inclusive);
-//                    violationCount.union(inter );
-//                    if(violationCount.cardinality() > 0){
-//                        if (earlyStop && violationCount.cardinality() > 0) {
-//                            return violationCount.cardinality();
-//                        }
-//                    }
-//
-//                } else {
-//                    treesMap.put(eqValues, new RangeTreeSetHelper());
-//                }
-//                long queryStart = System.nanoTime();
-//                /***
-//                 * inset time
-//                 */
-//                treesMap.get(eqValues).insert(ineqValues, i);
-//                allTuples.add(tid);
-//                if (violationCount.cardinality() > 0) {
-//
-//                    finalTMatches.put(tid, violationCount);
-//                }
-//
-//
-////            operand = matches.get(id-1).union(violationCount);
-////            matches.put(id,operand);
-//// end  insert
-//
-//                long tmp = System.nanoTime() - tStart;
-//                long query = queryStart - tStart;
-//                queryTimeSum += query;
-//                insertTimeSum += tmp;
-//                if (tmp > longestInsertTime) {
-//                    longestInsertTime = tmp;
-//                    longestTId = tid;
-//                }
-//                if ((tid + 1) % measureGranularity == 0) {
-////                每1k次插入汇报一下情况
-////                System.out.println(tid+1);
-//                    timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-//                    int sum = getSumOfViolationsForOneSide( finalTMatches) ;
-//
-//                    errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
-//                    double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
-//                    try {
-//                        // 打印原始值查看
-////                        System.out.println("Debug - tStart: " + tStart);
-////                        System.out.println("Debug - queryStart: " + queryStart);
-////                        System.out.println("Debug - currentTime: " + System.nanoTime());
-////                        System.out.println("Debug - tmp (total): " + tmp + " ns");
-////                        System.out.println("Debug - query: " + query + " ns");
-//                        Class.forName("org.sqlite.JDBC");
-//                        Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
-//                        c.setAutoCommit(false);
-//                        var stmt = c.createStatement();
-//                        stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations, query) VALUES ('%s', %s, %s, %s, %s);", "RA", 8, tid + 1, insertTimeSum / 1000000, sum, percentage));
-//                        stmt.close();
-//                        c.commit();
-//                        c.close();
-//                    } catch (Exception e) {
-//                        System.out.println(e.getMessage());
-//                    }
-//
-//
-//
-//                }
-//
-//
-//
-//            }
-//            System.out.println("====result=========");
-//            System.out.println(Arrays.toString(timePerHundredth));
-//            System.out.println(Arrays.toString(errorsPerHundredth));
-//            return 0;
-//    }
-//
+        List<Integer> indices = new ArrayList<>();
 
-    /***
-     * 为分层设计test
-     * @param homoEqLocs
-     * @param uneqLocs
-     * @param ops
-     * @param earlyStop
-     * @return
-     */
+        for (int i :allTuples) {
+            indices.add(i);
+
+        }
+        long insertTimeSum = 0;
+//
+        for (int i : indices) {
+
+            List<Integer> eqValuesLeft = new ArrayList<>();
+            List<Integer> eqValuesRight = new ArrayList<>();
+            for (int j : homoEqLocs) {
+                eqValuesLeft.add(input.data[i][j]);
+                eqValuesRight.add(input.data[i][j]);
+            }
+            for (int j : heteroEqLocs1) {
+                eqValuesLeft.add(input.data[i][j]);
+            }
+            for (int j : heteroEqLocs2) {
+                eqValuesRight.add(input.data[i][j]);
+            }
+
+            int[] ineqValuesLeft = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValuesLeft[k] = input.data[i][uneqLocs1.get(k)];
+            }
+            int[] ineqValuesRight = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValuesRight[k] = input.data[i][uneqLocs2.get(k)];
+            }
+            long tStart = System.nanoTime();
+//            idTKey.add(ineqValuesRight);// not used
+            int tid = maxTid++;
+
+
+            if (!treesMapAsLeftSide.containsKey(eqValuesLeft)) {
+                treesMapAsLeftSide.put(eqValuesLeft, new RangeTreeSetHelper());
+            }
+            treesMapAsLeftSide.get(eqValuesLeft).insert(ineqValuesLeft, tid);
+
+
+            if (!treesMapAsRightSide.containsKey(eqValuesRight)) {
+                treesMapAsRightSide.put(eqValuesRight, new RangeTreeSetHelper());
+            }
+            treesMapAsRightSide.get(eqValuesRight).insert(ineqValuesRight, tid);
+
+
+            long tmp = System.nanoTime() - tStart;
+            insertTimeSum += tmp;
+        }
+        return insertTimeSum;
+    }
+
+
+     public long InsertcountViolationsRangeTreeHomo() {
+        List<Integer> indices = new ArrayList<>();
+
+        for (int i : allTuples)
+            indices.add(i);
+        long insertTimeSum = 0;
+
+//    insert
+        for (int i : indices) {
+
+            List<Integer> eqValues = new ArrayList<>();
+            for (int j : homoEqLocs) {
+                eqValues.add(input.data[i][j]);
+            }
+            int[] ineqValues = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValues[k] = input.data[i][uneqLocs1.get(k)];
+            }
+
+            long tStart = System.nanoTime();
+            if (!treesMap.containsKey(eqValues)) {
+
+                treesMap.put(eqValues, new RangeTreeSetHelper());
+            }
+
+            treesMap.get(eqValues).insert(ineqValues, i);
+            long tmp = System.nanoTime() - tStart;
+
+            insertTimeSum += tmp;
+        }
+        return insertTimeSum ;
+    }
+
     private long countViolationsRangeTreeHomo(ArrayList<Integer> homoEqLocs, ArrayList<Integer> uneqLocs, ArrayList<String> ops, boolean earlyStop) {
 
         /*
@@ -455,19 +438,21 @@ public class DCCounter {
          * The columns on the left-hand-side and the right-hand-side are the same.
          */
 
-        Map<List<Integer>, RangeTreeSetHelper> treesMap = new HashMap<>();
 
         List<Integer> indices = new ArrayList<>();
 
+
         for (int i = 0; i < input.data.length; i++) {
             indices.add(i);
+
         }
+
 
 //    	Collections.shuffle(indices);
         /*
         preparation
          */
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long queryTimeSum = 0;
@@ -479,11 +464,9 @@ public class DCCounter {
 //
 
 
-
-
 //    insert
         for (int i : indices) {
-            long tStart = System.nanoTime();
+
             List<Integer> eqValues = new ArrayList<>();
             for (int j : homoEqLocs) {
                 eqValues.add(input.data[i][j]);
@@ -493,13 +476,14 @@ public class DCCounter {
                 ineqValues[k] = input.data[i][uneqLocs.get(k)];
             }
 
-            idTKey.add(ineqValues);
+
             int tid = maxTid++;
             /*
             每个tid 对应的operand ：violationCount
              */
             TIdSet violationCount = Utils.createNewTIdSet();
             TIdSet inter = Utils.createNewTIdSet();
+            long tStart = System.nanoTime();
             if (treesMap.containsKey(eqValues)) {
                 int[] upperBound = new int[ops.size()];
                 int[] lowerBound = new int[ops.size()];
@@ -532,8 +516,7 @@ public class DCCounter {
             }
 
 
-//            operand = matches.get(id-1).union(violationCount);
-//            matches.put(id,operand);
+
 // end  insert
 
             long tmp = System.nanoTime() - tStart;
@@ -545,73 +528,75 @@ public class DCCounter {
                 longestTId = tid;
                 System.err.println("longestIsertTime:" + longestInsertTime + "with id=:" + longestTId);
             }
-            if ((tid + 1) % measureGranularity == 0) {
-                System.out.println(tid);
-            }
-//            System.out.println(
-//                    "stats=" + RangeTreeCountSetLazy.STATS+"query time:"+query
-//            );
-//            if ((tid + 1) % measureGranularity == 0) {
-////                每1k次插入汇报一下情况
-////                System.out.println(tid+1);
-//
-//
-////                System.out.println(
-////                       "stats=" + RangeTreeCountSetLazy.STATS
-////                );RangeTreeCountSetLazy.STATS.reset();
-//                timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-//                int sum = getSumOfViolationsForOneSide(finalTMatches);
-//
-//                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
-//                double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
-//                try {
-//                    // 打印原始值查看
-////                        System.out.println("Debug - tStart: " + tStart);
-////                        System.out.println("Debug - queryStart: " + queryStart);
-////                        System.out.println("Debug - currentTime: " + System.nanoTime());
-////                        System.out.println("Debug - tmp (total): " + tmp + " ns");
-////                        System.out.println("Debug - query: " + query + " ns");
-//                    Class.forName("org.sqlite.JDBC");
-//                    Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
-//                    c.setAutoCommit(false);
-//                    var stmt = c.createStatement();
-//                    stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations, query) VALUES ('%s', %s, %s, %s, %s);",
-//                            "RA", 121024, tid + 1, insertTimeSum / 1000000, sum, percentage));
-//                    stmt.close();
-//                    c.commit();
-//                    c.close();
-//                } catch (Exception e) {
-//                    System.out.println(e.getMessage());
-//                }
-//
-//
-//            }
+                if ((tid + 1) % measureGranularity == 0) {
+//                每1k次插入汇报一下情况
+//                System.out.println(tid+1);
+                    timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
+                    int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+
+                    errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                    double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
+                    try {
+                        // 打印原始值查看
+//                        System.out.println("Debug - tStart: " + tStart);
+//                        System.out.println("Debug - queryStart: " + queryStart);
+//                        System.out.println("Debug - currentTime: " + System.nanoTime());
+//                        System.out.println("Debug - tmp (total): " + tmp + " ns");
+//                        System.out.println("Debug - query: " + query + " ns");
+                        Class.forName("org.sqlite.JDBC");
+                        Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
+                        c.setAutoCommit(false);
+                        var stmt = c.createStatement();
+                        stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations, query) VALUES ('%s', %s, %s, %s, %s);", "RA", 12, tid + 1, insertTimeSum / 1000000, sum, percentage));
+                        stmt.close();
+                        c.commit();
+                        c.close();
+                    } catch (Exception e) {
+                        System.out.println(e.getMessage());
+                    }
+
+
+
+                }
+
         }
 
 
         System.out.println("====result=========");
         System.out.println(Arrays.toString(timePerHundredth));
         System.out.println(Arrays.toString(errorsPerHundredth));
-        if (keepDeletion){
-            deleteOccurred = true;
-            deletionOperation(indices);
+        if (keepDeletion) {
+
+            deletionOperation();
         }
         return 0;
     }
 
-    private void deletionOperation(List<Integer> indices){
+    private void deletionOperation() {
         /***
          * 删除操作
          *
          */
+        List<Integer> indices = new ArrayList<>();
+
+
+        for (int i = 0; i < input.data.length; i++) {
+            allTuples.add(i);
+            indices.add(i);
+
+        }
+        rebuildRangeTrees(); // 调用重建方法
+        System.out.println("LOADED DONE: start to delete");
         dbName = "D:\\OneDrive - Heriot-Watt University\\2025\\Weever\\data\\results\\deletion_weever.db";
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
         long[] timePerHundredth = new long[indices.size() / measureGranularity + 1];
         int[] errorsPerHundredth = new int[indices.size() / measureGranularity + 1];
         List<Integer> indiceShuffle = new ArrayList<>(indices);
         Collections.shuffle(indiceShuffle);
         deleteOccurred = true;
-
+        double p = 0.4;
+        int rebuildThreshold = (int) (indices.size() * p);
+        int lazyDeleteCount = 0; // 记录自上次重建以来，累积的惰性删除数量
         long deleteTimeSum = 0;
         for (int i = 0; i < indiceShuffle.size(); i++) {
             int tid = indiceShuffle.get(i);
@@ -620,8 +605,14 @@ public class DCCounter {
             allTuples.remove(tid);
 
             deleteTimeSum += System.nanoTime() - tStart;
+            lazyDeleteCount++;
+// --- 触发重建 ---
+            if (lazyDeleteCount >= rebuildThreshold) {
 
-
+                deleteTimeSum += rebuildRangeTrees(); ; // 重建时间算入删除总时间
+                System.out.println("trigger reconstruction" );
+                lazyDeleteCount = 0; // 重置计数器
+            }
 
             if ((i + 1) % measureGranularity == 0) {
                 timePerHundredth[(i + 1) / measureGranularity] = deleteTimeSum / 1000000;
@@ -633,7 +624,7 @@ public class DCCounter {
                         Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
                         c.setAutoCommit(false);
                         var stmt = c.createStatement();
-                        stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations) VALUES ('%s', %s, %s, %s);", "BA", 0, i + 1, deleteTimeSum / 1000000,sum));
+                        stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations) VALUES ('%s', %s, %s, %s);", "RA", 0, i + 1, deleteTimeSum / 1000000, sum));
                         stmt.close();
                         c.commit();
                         c.close();
@@ -644,13 +635,54 @@ public class DCCounter {
             }
         }
     }
+
+    private long rebuildRangeTrees() {
+//每次操作都在 巨大 hash table 上执行。
+//
+//导致：
+//
+//cache miss ↑
+//bucket traversal ↑
+//memory footprint ↑
+
+        mapClear();
+        // 2. 遍历当前仍然存活的所有 tuple 进行重新插入
+        Method method = null;
+        try {
+            method = this.getClass().getMethod(type);
+            return (long) method.invoke(this);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        } catch (SecurityException e) {
+            throw new RuntimeException(e);
+        } catch (InvocationTargetException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+
+    }
+
+    private void mapClear() {
+        Map<List<Integer>, RangeTreeSetHelper> newTreesMap = new HashMap<>();
+        Map<List<Integer>, RangeTreeSetHelper> newtreesMapAsLeftSide = new HashMap<>();
+        Map<List<Integer>, RangeTreeSetHelper> newtreesMapAsRightSide = new HashMap<>();
+        Map<String, TIdSet> newcounterLeft = new HashMap<>();
+        Map<String, TIdSet> newcounterRight = new HashMap<>();
+
+
+        // ⭐ atomic swap
+        treesMap = newTreesMap;
+        treesMapAsLeftSide = newtreesMapAsLeftSide;
+        treesMapAsRightSide = newtreesMapAsRightSide;
+        counterLeft = newcounterLeft;
+        counterRight = newcounterRight;
+    }
+
     private long HeteroCountDups(ArrayList<Integer> homoEqLocs, boolean earlyStop, ArrayList<Integer> heteroEqLocs1, ArrayList<Integer> heteroEqLocs2) {
         /*
          * Use a hash set to detect violations when the constraint only contains equalities.
          */
-
-        Map<List<Integer>, TIdSet> counterLeft = new HashMap<>();
-        Map<List<Integer>, TIdSet> counterRight = new HashMap<>();
 
 
         List<Integer> indices = new ArrayList<>();
@@ -663,7 +695,7 @@ public class DCCounter {
         /*
         preparation
          */
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long longestInsertTime = 0;
@@ -674,23 +706,21 @@ public class DCCounter {
 //
 
 
-
-
 //    insert
         for (int i : indices) {
             long tStart = System.nanoTime();
 
-            List<Integer> eqValuesLeft = new ArrayList<>();
-            List<Integer> eqValuesRight = new ArrayList<>();
+            String eqValuesLeft="" ;
+           String eqValuesRight="";
             for (int j : homoEqLocs) {
-                eqValuesLeft.add(input.data[i][j]);
-                eqValuesRight.add(input.data[i][j]);
+                eqValuesLeft+=input.data[i][j]+" ";
+                eqValuesRight+=input.data[i][j]+" ";
             }
-            for (int j : heteroEqLocs1){
-                eqValuesLeft.add(input.data[i][j]);
+            for (int j : heteroEqLocs1) {
+                eqValuesLeft+=input.data[i][j]+" ";
             }
-            for (int j : heteroEqLocs2){
-                eqValuesRight.add(input.data[i][j]);
+            for (int j : heteroEqLocs2) {
+                eqValuesRight+=input.data[i][j]+" ";
             }
 
 
@@ -707,23 +737,23 @@ public class DCCounter {
 
 
             }
-            if( !counterLeft.containsKey(eqValuesLeft)) {
+            if (!counterLeft.containsKey(eqValuesLeft)) {
 
                 counterLeft.put(eqValuesLeft, Utils.createNewTIdSet());
             }
-            counterLeft.get(eqValuesLeft).add( i);
-            if(counterRight.containsKey(eqValuesLeft)){
+            counterLeft.get(eqValuesLeft).add(i);
+            if (counterRight.containsKey(eqValuesLeft)) {
                 violationCount.union(counterRight.get(eqValuesLeft));
 
             }
             long queryStart = System.nanoTime();
-            if(!counterRight.containsKey(eqValuesRight)) {
-                counterRight.put(eqValuesRight,  Utils.createNewTIdSet());
+            if (!counterRight.containsKey(eqValuesRight)) {
+                counterRight.put(eqValuesRight, Utils.createNewTIdSet());
             }
-            counterRight.get(eqValuesRight).add( i);
+            counterRight.get(eqValuesRight).add(i);
 
 
-            if(violationCount.cardinality() > 0){
+            if (violationCount.cardinality() > 0) {
                 if (earlyStop && violationCount.cardinality() > 0) {
                     return violationCount.cardinality();
                 }
@@ -753,9 +783,9 @@ public class DCCounter {
 //                每1k次插入汇报一下情况
 //                System.out.println(tid+1);
                 timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-                int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+                int sum = getSumOfViolationsForOneSide(finalTMatches);
 
-                errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
                 double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
 
                 try {
@@ -764,7 +794,7 @@ public class DCCounter {
                     c.setAutoCommit(false);
                     var stmt = c.createStatement();
                     stmt.executeUpdate(String.format("INSERT INTO %s (run_id, tuples, time, violations, query) VALUES ('%s', %s, %s, %s, %s);",
-                            "RA", 1024, tid + 1, insertTimeSum / 1000000, sum, percentage));
+                            "RA", 102413, tid + 1, insertTimeSum / 1000000, sum, percentage));
                     stmt.close();
                     c.commit();
                     c.close();
@@ -773,20 +803,76 @@ public class DCCounter {
                 }
 
 
-
             }
-
 
 
         }
         System.out.println("====result=========");
         System.out.println(Arrays.toString(timePerHundredth));
         System.out.println(Arrays.toString(errorsPerHundredth));
-        if (keepDeletion){
-            deleteOccurred = true;
-            deletionOperation(indices);
+        if (keepDeletion) {
+
+            deletionOperation();
         }
         return 0;
+    }
+    public long InsertHeteroCountDups() {
+        /*
+         * Use a hash set to detect violations when the constraint only contains equalities.
+         */
+
+
+        List<Integer> indices = new ArrayList<>();
+
+        for (int i : allTuples)
+            indices.add(i);
+
+        long insertTimeSum = 0;
+
+//    insert
+        for (int i : indices) {
+
+
+            String eqValuesLeft = "";
+            String eqValuesRight = "";
+            for (int j : homoEqLocs) {
+                eqValuesLeft+=input.data[i][j]+" ";
+                eqValuesRight+=input.data[i][j]+" ";
+            }
+            for (int j : heteroEqLocs1) {
+                eqValuesLeft+=input.data[i][j]+" ";
+            }
+            for (int j : heteroEqLocs2) {
+                eqValuesRight+=input.data[i][j]+" ";
+            }
+            long tStart = System.nanoTime();
+
+            /*
+            每个tid 对应的operand ：violationCount
+             */
+            TIdSet violationCount = Utils.createNewTIdSet();
+
+
+            if (!counterLeft.containsKey(eqValuesLeft)) {
+
+                counterLeft.put(eqValuesLeft, Utils.createNewTIdSet());
+            }
+            counterLeft.get(eqValuesLeft).add(i);
+
+            if (!counterRight.containsKey(eqValuesRight)) {
+                counterRight.put(eqValuesRight, Utils.createNewTIdSet());
+            }
+            counterRight.get(eqValuesRight).add(i);
+
+
+            allTuples.add(i);
+
+
+            long tmp = System.nanoTime() - tStart;
+
+            insertTimeSum += tmp;
+        }
+        return insertTimeSum ;
     }
 
 
@@ -798,15 +884,12 @@ public class DCCounter {
          */
 
 
-        Map<List<Integer>, RangeTreeSetHelper> treesMapAsLeftSide = new HashMap<>();
-        Map<List<Integer>, RangeTreeSetHelper> treesMapAsRightSide = new HashMap<>();
-
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < input.data.length; i++) {
             indices.add(i);
         }
 //        Collections.shuffle(indices);
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long longestInsertTime = 0;
@@ -836,12 +919,12 @@ public class DCCounter {
             if (treesMapAsLeftSide.containsKey(eqValues)) {
                 int[] upperBound = new int[ops.size()];
                 int[] lowerBound = new int[ops.size()];
-                boolean[]  inclusive = new boolean[ops.size()];
-                computeBounds(ineqValuesRight, upperBound, lowerBound, ops,inclusive);
-                violationCount.union(treesMapAsLeftSide.get(eqValues).rangeCount(lowerBound, upperBound,inclusive));
+                boolean[] inclusive = new boolean[ops.size()];
+                computeBounds(ineqValuesRight, upperBound, lowerBound, ops, inclusive);
+                violationCount.union(treesMapAsLeftSide.get(eqValues).rangeCount(lowerBound, upperBound, inclusive));
 
                 computeBounds(ineqValuesLeft, upperBound, lowerBound, reverseOp(ops), inclusive);
-                violationCount.union(treesMapAsRightSide.get(eqValues).rangeCount(lowerBound, upperBound,inclusive));
+                violationCount.union(treesMapAsRightSide.get(eqValues).rangeCount(lowerBound, upperBound, inclusive));
 
                 if (earlyStop && violationCount.cardinality() > 0) {
                     return violationCount.cardinality();
@@ -872,9 +955,9 @@ public class DCCounter {
 //                每1k次插入汇报一下情况
 //                System.out.println(tid+1);
                 timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-                int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+                int sum = getSumOfViolationsForOneSide(finalTMatches);
 
-                errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
                 try {
                     Class.forName("org.sqlite.JDBC");
                     Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbName);
@@ -889,7 +972,6 @@ public class DCCounter {
                 }
 
 
-
             }
         }
         System.out.println("====result=========");
@@ -898,6 +980,51 @@ public class DCCounter {
         return 0;
 
     }
+    public long InsertcountViolationsRangeTreeHeter() {
+        List<Integer> indices = new ArrayList<>();
+
+        for (int i : allTuples)
+            indices.add(i);
+        long insertTimeSum = 0;
+
+//
+        for (int i : indices) {
+
+            List<Integer> eqValues = new ArrayList<>();
+            for (int j : homoEqLocs) {
+                eqValues.add(input.data[i][j]);
+            }
+            int[] ineqValuesLeft = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValuesLeft[k] = input.data[i][uneqLocs1.get(k)];
+            }
+            int[] ineqValuesRight = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValuesRight[k] = input.data[i][uneqLocs2.get(k)];
+            }
+            long tStart = System.nanoTime();
+
+            if (!treesMapAsLeftSide.containsKey(eqValues)) {
+
+                treesMapAsLeftSide.put(eqValues, new RangeTreeSetHelper());
+                treesMapAsRightSide.put(eqValues, new RangeTreeSetHelper());
+            }
+//TODO 区分 id 和 tid的区别，不要误用
+
+            treesMapAsLeftSide.get(eqValues).insert(ineqValuesLeft, i);
+            treesMapAsRightSide.get(eqValues).insert(ineqValuesRight, i);
+            allTuples.add(i);
+
+/***
+ * time computation
+ */
+            long tmp = System.nanoTime() - tStart;
+            insertTimeSum += tmp;
+             }
+
+        return insertTimeSum ;
+    }
+
     private String reverseOp(String op) {
         if (op.equals(">")) return "<";
         if (op.equals("<")) return ">";
@@ -914,18 +1041,43 @@ public class DCCounter {
         return opsReversed;
     }
 
-    private void computeBounds(int[] values, int[] upper, int[] lower, ArrayList<String> ops,boolean[] inclusive) {
+    private void computeBounds(int[] values, int[] upper, int[] lower, ArrayList<String> ops, boolean[] inclusive) {
         for (int k = 0; k < ops.size(); k++) {
 //            TODO 竟然边界直接是加1 然后inclusive 默认设定都是true
 //			if (ops.get(k).equals(">")) {lower[k] = values[k] + 1; upper[k] = Integer.MAX_VALUE; inclusive[k] = false; continue;}
 //			if (ops.get(k).equals("<")) {lower[k] = Integer.MIN_VALUE; upper[k] = values[k] - 1; inclusive[k] = false; continue;}
 //			if (ops.get(k).equals(">=")) {lower[k] = values[k]; upper[k] = Integer.MAX_VALUE;inclusive[k] = true; continue;}
 //			if (ops.get(k).equals("<=")) {lower[k] = Integer.MIN_VALUE; upper[k] = values[k];inclusive[k] = true; continue;}
-            if(ops.get(k).equals("==")) {lower[k] = values[k] ; upper[k] = values[k] ; inclusive[k] = true; continue;}
-            if (ops.get(k).equals(">")) {lower[k] = values[k] ; upper[k] = Integer.MAX_VALUE; inclusive[k] = false; continue;}
-            if (ops.get(k).equals("<")) {lower[k] = Integer.MIN_VALUE; upper[k] = values[k] ; inclusive[k] = false; continue;}
-            if (ops.get(k).equals(">=")) {lower[k] = values[k]; upper[k] = Integer.MAX_VALUE;inclusive[k] = true; continue;}
-            if (ops.get(k).equals("<=")) {lower[k] = Integer.MIN_VALUE; upper[k] = values[k];inclusive[k] = true; continue;}
+            if (ops.get(k).equals("==")) {
+                lower[k] = values[k];
+                upper[k] = values[k];
+                inclusive[k] = true;
+                continue;
+            }
+            if (ops.get(k).equals(">")) {
+                lower[k] = values[k];
+                upper[k] = Integer.MAX_VALUE;
+                inclusive[k] = false;
+                continue;
+            }
+            if (ops.get(k).equals("<")) {
+                lower[k] = Integer.MIN_VALUE;
+                upper[k] = values[k];
+                inclusive[k] = false;
+                continue;
+            }
+            if (ops.get(k).equals(">=")) {
+                lower[k] = values[k];
+                upper[k] = Integer.MAX_VALUE;
+                inclusive[k] = true;
+                continue;
+            }
+            if (ops.get(k).equals("<=")) {
+                lower[k] = Integer.MIN_VALUE;
+                upper[k] = values[k];
+                inclusive[k] = true;
+                continue;
+            }
         }
     }
 
@@ -936,8 +1088,7 @@ public class DCCounter {
          * The columns on the left-hand-side and the right-hand-side are the same.
          */
 
-        Map<List<Integer>, RangeTreeSetHelper> treesMapLeft = new HashMap<>();
-        Map<List<Integer>, RangeTreeSetHelper> treesMapRight = new HashMap<>();
+
         List<Integer> indices = new ArrayList<>();
 
         for (int i = 0; i < input.data.length; i++) {
@@ -948,7 +1099,7 @@ public class DCCounter {
         /*
         preparation
          */
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long longestInsertTime = 0;
@@ -960,8 +1111,6 @@ public class DCCounter {
 //
 
 
-
-
 //    insert
         for (int i : indices) {
             long tStart = System.nanoTime();
@@ -971,10 +1120,10 @@ public class DCCounter {
                 eqValuesLeft.add(input.data[i][j]);
                 eqValuesRight.add(input.data[i][j]);
             }
-            for (int j: heteroEqLocs1){
+            for (int j : heteroEqLocs1) {
                 eqValuesLeft.add(input.data[i][j]);
             }
-            for (int j: heteroEqLocs2){
+            for (int j : heteroEqLocs2) {
                 eqValuesRight.add(input.data[i][j]);
             }
             int[] ineqValues = new int[ops.size()];
@@ -982,7 +1131,7 @@ public class DCCounter {
                 ineqValues[k] = input.data[i][uneqLocs.get(k)];
             }
 
-            idTKey.add(ineqValues);
+
             int tid = maxTid++;
             /*
             每个tid 对应的operand ：violationCount
@@ -992,34 +1141,32 @@ public class DCCounter {
             int[] upperBound = new int[ops.size()];
             int[] lowerBound = new int[ops.size()];
             boolean[] inclusive = new boolean[ops.size()];
-            if (treesMapLeft.containsKey(eqValuesRight)) {
+            if (treesMapAsLeftSide.containsKey(eqValuesRight)) {
 
 
                 computeBounds(ineqValues, upperBound, lowerBound, ops, inclusive);
-                violationCount.union(treesMapLeft.get(eqValuesRight).rangeCount(lowerBound, upperBound, inclusive));
+                violationCount.union(treesMapAsLeftSide.get(eqValuesRight).rangeCount(lowerBound, upperBound, inclusive));
 
             }
-            if(!treesMapLeft.containsKey(eqValuesLeft)){
-                treesMapLeft.put(eqValuesLeft,new RangeTreeSetHelper());
+            if (!treesMapAsLeftSide.containsKey(eqValuesLeft)) {
+                treesMapAsLeftSide.put(eqValuesLeft, new RangeTreeSetHelper());
             }
-            treesMapLeft.get(eqValuesLeft).insert(ineqValues, tid);
+            treesMapAsLeftSide.get(eqValuesLeft).insert(ineqValues, tid);
 
 
-            if (treesMapRight.containsKey(eqValuesLeft)) {
-                computeBounds(ineqValues, upperBound, lowerBound, reverseOp(ops),inclusive);
-                inter = treesMapRight.get(eqValuesLeft).rangeCount(lowerBound, upperBound,inclusive);
-                violationCount.union(inter );
+            if (treesMapAsRightSide.containsKey(eqValuesLeft)) {
+                computeBounds(ineqValues, upperBound, lowerBound, reverseOp(ops), inclusive);
+                inter = treesMapAsRightSide.get(eqValuesLeft).rangeCount(lowerBound, upperBound, inclusive);
+                violationCount.union(inter);
             }
             long queryStart = System.nanoTime();
-            if(!treesMapRight.containsKey(eqValuesRight)){
-                treesMapRight.put(eqValuesRight,new RangeTreeSetHelper());
+            if (!treesMapAsRightSide.containsKey(eqValuesRight)) {
+                treesMapAsRightSide.put(eqValuesRight, new RangeTreeSetHelper());
             }
-            treesMapRight.get(eqValuesRight).insert(ineqValues,tid);
+            treesMapAsRightSide.get(eqValuesRight).insert(ineqValues, tid);
 
 
-
-
-            if(violationCount.cardinality() > 0){
+            if (violationCount.cardinality() > 0) {
                 if (earlyStop && violationCount.cardinality() > 0) {
                     return violationCount.cardinality();
                 }
@@ -1047,9 +1194,9 @@ public class DCCounter {
 //                每1k次插入汇报一下情况
 //                System.out.println(tid+1);
                 timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-                int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+                int sum = getSumOfViolationsForOneSide(finalTMatches);
 
-                errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
                 double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
                 try {
                     Class.forName("org.sqlite.JDBC");
@@ -1066,20 +1213,72 @@ public class DCCounter {
                 }
 
 
-
             }
-
 
 
         }
         System.out.println("====result=========");
         System.out.println(Arrays.toString(timePerHundredth));
         System.out.println(Arrays.toString(errorsPerHundredth));
-        if (keepDeletion){
-            deleteOccurred = true;
-            deletionOperation(indices);
+        if (keepDeletion) {
+
+            deletionOperation();
         }
         return 0;
+    }
+    public long InsertcountViolationsRangeTreeHeteroEqualHomo() {
+
+
+        List<Integer> indices = new ArrayList<>();
+
+        for (int i : allTuples)
+            indices.add(i);
+        long insertTimeSum = 0;
+
+//    insert
+        for (int i : indices) {
+
+            List<Integer> eqValuesLeft = new ArrayList<>();
+            List<Integer> eqValuesRight = new ArrayList<>();
+            for (int j : homoEqLocs) {
+                eqValuesLeft.add(input.data[i][j]);
+                eqValuesRight.add(input.data[i][j]);
+            }
+            for (int j : heteroEqLocs1) {
+                eqValuesLeft.add(input.data[i][j]);
+            }
+            for (int j : heteroEqLocs2) {
+                eqValuesRight.add(input.data[i][j]);
+            }
+            int[] ineqValues = new int[ops.size()];
+            for (int k = 0; k < ops.size(); k++) {
+                ineqValues[k] = input.data[i][uneqLocs1.get(k)];
+            }
+
+            long tStart = System.nanoTime();
+
+            if (!treesMapAsLeftSide.containsKey(eqValuesLeft)) {
+                treesMapAsLeftSide.put(eqValuesLeft, new RangeTreeSetHelper());
+            }
+            treesMapAsLeftSide.get(eqValuesLeft).insert(ineqValues, i);
+
+
+            long queryStart = System.nanoTime();
+            if (!treesMapAsRightSide.containsKey(eqValuesRight)) {
+                treesMapAsRightSide.put(eqValuesRight, new RangeTreeSetHelper());
+            }
+            treesMapAsRightSide.get(eqValuesRight).insert(ineqValues, i);
+
+            allTuples.add(i);
+
+
+//            operand = matches.get(id-1).union(violationCount);
+//            matches.put(id,operand);
+// end  insert
+            long tmp = System.nanoTime() - tStart;
+            insertTimeSum += tmp;
+        }
+        return insertTimeSum ;
     }
 
     private int getSumOfViolationsForOneSide(Int2ObjectOpenHashMap<TIdSet> map) {
@@ -1103,6 +1302,7 @@ public class DCCounter {
         }
         return sum;
     }
+
     //
 //    private long countViolationsRangeTreeHeter(ArrayList<Integer> homoEqLocs, ArrayList<Integer> uneqLocsLeft,
 //			ArrayList<Integer> uneqLocsRight, ArrayList<String> ops, boolean earlyStop) {
@@ -1286,7 +1486,8 @@ public class DCCounter {
          * Insert one column in a sorted order, and use AVL trees to check the other one.
          */
         long violationCount = 0;
-        Map<List<Integer>, Integer> prevValueSortLoc = new HashMap<>();;
+        Map<List<Integer>, Integer> prevValueSortLoc = new HashMap<>();
+        ;
         Map<List<Integer>, List<Integer>> prevValuesUneqLoc = new HashMap<>();
         if (opSort.startsWith(">")) {
             Arrays.sort(input.data, (a, b) -> Integer.compare(a[uneqSortLoc], b[uneqSortLoc]));
@@ -1426,7 +1627,7 @@ public class DCCounter {
          * Use a hash set to detect violations when the constraint only contains equalities.
          */
 
-        Map<List<Integer>, TIdSet> counter = new HashMap<>();
+        Map<String, TIdSet> counter = new HashMap<>();
 
 
         List<Integer> indices = new ArrayList<>();
@@ -1439,7 +1640,7 @@ public class DCCounter {
         /*
         preparation
          */
-        int  measureGranularity =1000;
+        int measureGranularity = 1000;
 
         long insertTimeSum = 0;
         long longestInsertTime = 0;
@@ -1449,18 +1650,16 @@ public class DCCounter {
         int[] errorsPerHundredth = new int[indices.size() / measureGranularity + 1];
 //
 
-
-
-
+        int length = colLocs.size();
 //    insert
         for (int i : indices) {
-            long tStart = System.nanoTime();
 
-            List<Integer> eqValues = new ArrayList<>();
+
+            String eqValues ="" ;
             for (int j : colLocs) {
-                eqValues.add(input.data[i][j]);
+                eqValues+= input.data[i][j]+" ";
             }
-
+            long tStart = System.nanoTime();
 
 //            idTKey.add(ineqValues);
             int tid = maxTid++;
@@ -1472,7 +1671,7 @@ public class DCCounter {
             if (counter.containsKey(eqValues)) {
 
                 violationCount.union(counter.get(eqValues));
-                if(violationCount.cardinality() > 0){
+                if (violationCount.cardinality() > 0) {
                     if (earlyStop && violationCount.cardinality() > 0) {
                         return violationCount.cardinality();
                     }
@@ -1483,9 +1682,8 @@ public class DCCounter {
             }
 
 
-
             long queryStart = System.nanoTime();
-            counter.get(eqValues).add( i);
+            counter.get(eqValues).add(i);
             allTuples.add(tid);
             if (violationCount.cardinality() > 0) {
 
@@ -1509,9 +1707,9 @@ public class DCCounter {
 //                每1k次插入汇报一下情况
 //                System.out.println(tid+1);
                 timePerHundredth[(tid + 1) / measureGranularity] = insertTimeSum / 1000000;
-                int sum = getSumOfViolationsForOneSide( finalTMatches) ;
+                int sum = getSumOfViolationsForOneSide(finalTMatches);
 
-                errorsPerHundredth[(tid + 1) / measureGranularity] =sum;
+                errorsPerHundredth[(tid + 1) / measureGranularity] = sum;
                 double percentage = (double) queryTimeSum / insertTimeSum * 100.0;
                 try {
                     Class.forName("org.sqlite.JDBC");
@@ -1528,21 +1726,57 @@ public class DCCounter {
                 }
 
 
-
             }
-
 
 
         }
         System.out.println("====result=========");
         System.out.println(Arrays.toString(timePerHundredth));
         System.out.println(Arrays.toString(errorsPerHundredth));
-        if (keepDeletion){
-            deleteOccurred = true;
-            deletionOperation(indices);
+        if (keepDeletion) {
+
+            deletionOperation();
         }
         return 0;
     }
 
+    public long InsertcountDups() {
+        /*
+         * Use a hash set to detect violations when the constraint only contains equalities.
+         */
 
+        Map<List<Integer>, TIdSet> counter = new HashMap<>();
+
+
+        List<Integer> indices = new ArrayList<>();
+
+        for (int i : allTuples)
+            indices.add(i);
+
+        long insertTimeSum = 0;
+//    insert
+        for (int i : indices) {
+            long tStart = System.nanoTime();
+
+            List<Integer> eqValues = new ArrayList<>();
+            for (int j : homoEqLocs) {
+                eqValues.add(input.data[i][j]);
+            }
+
+            if (!counter.containsKey(eqValues)) {
+
+                counter.put(eqValues, Utils.createNewTIdSet());
+            }
+
+            counter.get(eqValues).add(i);
+            allTuples.add(i);
+
+            long tmp = System.nanoTime() - tStart;
+
+            insertTimeSum += tmp;
+
+
+        }
+        return insertTimeSum ;
+    }
 }

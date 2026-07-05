@@ -46,7 +46,7 @@ public class InputTable {
 
                 rows.add(row);
                 maxRows++;
-                if(maxRows==3000001){
+                if(maxRows==580000){
                     break;
                 }
             }
